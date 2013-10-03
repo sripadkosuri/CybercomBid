@@ -1,0 +1,175 @@
+﻿
+<!--[if gte IE 9]>
+  <style type="text/css">
+    .gradient {
+       filter: none;
+    }
+  </style>
+<![endif]-->
+
+<style>
+    body 
+    {
+        background-color: #E6E6E6;
+    }
+</style>
+
+@if (false) { 
+    <script src="../../Scripts/jquery-2.0.3.intellisense.js" type="text/javascript"></script>
+}
+
+<div id="header">
+    <h2>Cybercom Bid and chat</h2>
+
+<div id="myContainer"  class="container-fluid">
+    <div class="row-fluid">
+
+        <!-- This  is the contact box -->        
+        <div id="users-list" class="span2">
+            <h4>Users</h4> 
+            <ul data-bind="foreach: contacts">
+                <li class="user-box"><span class="user-box-name" data-bind="text: username"></span></li>
+            </ul>
+        </div>
+        <!-- This  is the chat box -->
+        <div id="chat-list" class="span8" data-bind="foreach: messages">
+            <ul>
+                <li>
+                    <div class="chat-listitem-username" data-bind="text: username">                    
+                    </div>                
+                    <div class="chat-listitem-message" data-bind="html: content">                    
+                    </div>                
+                    <div class="chat-listitem-timestamp" data-bind="text: timestamp.toLocaleTimeString()">
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>    
+    <div id="compose" class="row-fluid">
+        <div class="span2"></div>
+        <div class="span8">    
+            <div class="row-fluid">                        
+                <div class="span10"><textarea id="compose-box" rows="2" cols="50" placeholder="Type your message here"></textarea>     </div>
+                <div class="span2"><button id="send-btn" type="submit" class="btn btn-large btn-primary">Send</button>   </div>          
+            </div>
+        </div>        
+    </div>
+    <div class="row-fluid">
+<div id="bidbox" class="span2">
+            <h4> Bid Here</h4>
+            Highest bidder will get a chance to do the next thursday session , Bid here <input type="text" id="txtbidprice"  />
+
+            <button id="updatebid-btn" type="submit" class="btn btn-large btn-primary" >Bid </button>
+                
+            <br/>
+            
+            Current bid is by <span id="bidderUserName"></span> and the bid is <span id="bidderPrice"></span> DKK.
+
+        </div>
+        
+        </div>
+
+</div>
+</div>
+
+    <script type="text/javascript" src="@Url.Content("/signalr/hubs")"></script>  
+<script type="text/javascript" src="@Url.Content("~/Js/Bid.js")"></script>
+
+<script type="text/javascript">
+
+    $(document).ready(function () {
+        var chat = new Bidder.chatViewModel();
+        var users = new Bidder.connectedUsersViewModel();
+        
+        var currentUser = new Bidder.user(@Html.Raw(Json.Encode(Model))); // The username choosen by the user is stored in the model
+
+        // Proxy creation
+        var chatHub = $.connection.chatHub; // chatHub is the name of the Hub as declared in server side code
+        chatHub.state.username = currentUser.username; // This is the round-trip state
+
+        // Client-side event handlers, as declared inside the  Hub
+        chatHub.client.onMessageReceived = function (message) {
+            chat.messages.push(new Bidder.chatMessage(message.Username, message.Content, new Date(message.Timestamp)));
+            $("#chat-list").scrollTo('max');
+        }
+
+        chatHub.client.onBidUpdate = function (bidPrice) {
+            $("#bidbox #bidderUserName").text(bidPrice.UserName);
+            $("#bidbox #bidderPrice").text(bidPrice.Price);
+
+        }
+        chatHub.client.leaves = function (userId, username, timestamp) {
+            var disconnectedUser = new Bidder.user(username, userId);
+            users.customRemove(disconnectedUser);
+        }
+
+        chatHub.client.joins = function (userId, username, timestamp) {
+            var connectedUser = new Bidder.user(username, userId);
+            users.contacts.push(connectedUser);
+        }
+
+        function sendMessageContent() {
+            var content = $("#compose-box").val();
+            if (content != "" && content != null) {
+                var msg = new Bidder.chatMessage(currentUser.username, content);
+                chatHub.server.send(msg).done(function () {
+                    $("#compose-box").val("");
+                }).fail(function (e) {
+                    alert("Could not connect to server");
+                });
+            }
+        }
+
+        function sendBidPrice() {
+
+            var bidPrice = $("#txtbidprice").val();
+            
+            var bidToSend = new Bidder.bid(currentUser.username, bidPrice);
+            
+            chatHub.server.updateBidPrice(bidToSend).done(function () {
+                //$("#compose-box").val("");
+            }).fail(function (e) {
+                alert("Could not connect to server");
+            });
+            
+
+
+        }
+
+        $("#send-btn").click(function () {
+            sendMessageContent();
+        });
+
+        $("#updatebid-btn").click(function () {
+            sendBidPrice();
+        });
+        // Handles Enter keystroke press event
+        $('#compose-box').keypress(function (e) {
+            if (e.which == 13) {
+                sendMessageContent();
+            }
+        });
+        
+
+
+        //ko.applyBindings(Bidder.bidViewModel);
+        ko.applyBindings(users, $("#users-list")[0]);
+        ko.applyBindings(chat, $("#chat-list")[0]);
+
+        // Step 1: Start the connection
+        // Step 2: Get all currenlty connected users
+        // Step 3: Join to the chat and nmotify all the clients (me included) that there is a new user connected
+        $.connection.hub.start()
+                    .done(function () {
+                        chatHub.server.getConnectedUsers()
+                                    .done(function (connectedUsers) {
+                                        ko.utils.arrayForEach(connectedUsers, function (item) {
+                                            users.contacts.push(new Bidder.user(item.Username, item.Id));
+                                        });
+                                    }).done(function () {
+                                        chatHub.server.joined();
+                                    });
+                    });
+    });
+
+</script>
